@@ -31,13 +31,14 @@ void addIncome(Budget *budget);
 void addExpense(Budget *budget);
 void addSavingsGoal(Budget *budget);
 void updateSavingsGoal(Budget *budget);
+void showSavingsProgress(const Budget *budget);
 void calculateDailyBudget(const Budget *budget);
+void showAnalytics(const Budget *budget);
 void saveBudgetToFile(const Budget *budget, const char *filename);
 void loadBudgetFromFile(Budget *budget, const char *filename);
-void showSavingsProgress(const Budget *budget);
 
 int main() {
-    Budget budget = {0, 30, 0}; // Default: 30 days in a month
+    Budget budget = {0, 30, 0, 0}; // Default: 30 days in a month
     int choice;
     char filename[] = "finance_lite_data.txt";
 
@@ -49,10 +50,11 @@ int main() {
         printf("1. Add Monthly Income\n");
         printf("2. Add Expense\n");
         printf("3. Add Savings Goal\n");
-        printf("4. Update Savings Goal Proress\n");
+        printf("4. Update Savings Goal Progress\n");
         printf("5. Show Savings Progress\n");
         printf("6. Calculate Daily Budget\n");
-        printf("7. Save and Exit\n");
+        printf("7. Show Analytics\n");
+        printf("8. Save and Exit\n");
         printf("Enter your choice: ");
         scanf("%d", &choice);
 
@@ -76,14 +78,17 @@ int main() {
                 calculateDailyBudget(&budget);
                 break;
             case 7:
+                showAnalytics(&budget);
+                break;
+            case 8:
                 saveBudgetToFile(&budget, filename);
                 printf("Budget saved. Goodbye!\n");
                 break;
             default:
                 printf("Invalid choice. Please try again.\n");
         }
-    } while (choice != 7);
-    
+    } while (choice != 8);
+
     return 0;
 }
 
@@ -141,7 +146,7 @@ void updateSavingsGoal(Budget *budget) {
         return;
     }
     for (int i = 0; i < budget->num_goals; i++) {
-        printf("%d. %s (TargetL $%.2f, Saved: $%.2f)\n", i + 1, budget->goals[i].name, budget->goals[i].target_amount, budget->goals[i].saved_amount);
+        printf("%d. %s (Target: $%.2f, Saved: $%.2f)\n", i + 1, budget->goals[i].name, budget->goals[i].target_amount, budget->goals[i].saved_amount);
     }
     printf("Select a goal to update (1-%d): ", budget->num_goals);
     int choice;
@@ -158,11 +163,10 @@ void updateSavingsGoal(Budget *budget) {
     }
     budget->goals[choice].saved_amount += amount;
     if (budget->goals[choice].saved_amount > budget->goals[choice].target_amount) {
-        budget->goals[choice].saved_amount > budget->goals[choice].target_amount;
+        budget->goals[choice].saved_amount = budget->goals[choice].target_amount;
     }
     printf("Progress updated for %s. Saved: $%.2f / $%.2f\n", budget->goals[choice].name, budget->goals[choice].saved_amount, budget->goals[choice].target_amount);
 }
-
 
 // Function to show savings progress
 void showSavingsProgress(const Budget *budget) {
@@ -173,7 +177,11 @@ void showSavingsProgress(const Budget *budget) {
     printf("\n--- Savings Progress ---\n");
     for (int i = 0; i < budget->num_goals; i++) {
         float progress = (budget->goals[i].saved_amount / budget->goals[i].target_amount) * 100;
-        printf("%s: $%.2f / $%.2f (%.2f%% complete)\n", budget->goals[i].name, budget->goals[i].saved_amount, budget->goals[i].target_amount, progress);
+        printf("%s: $%.2f / $%.2f (%.2f%% complete)\n", 
+               budget->goals[i].name, 
+               budget->goals[i].saved_amount, 
+               budget->goals[i].target_amount, 
+               progress);
     }
 }
 
@@ -194,11 +202,49 @@ void calculateDailyBudget(const Budget *budget) {
     printf("\n--- Daily Budget ---\n");
     printf("Monthly Income: $%.2f\n", budget->income);
     printf("Total Expenses: $%.2f\n", total_expenses);
-    printf("Savings Allocation (Daily): %.2f\n", total_savings);
+    printf("Savings Allocation (Daily): $%.2f\n", total_savings);
     printf("Daily Budget: $%.2f\n", daily_budget);
 }
 
-// Function to svae the budget to a file
+// Function to show analytics (spending trends and savings progress)
+void showAnalytics(const Budget *budget) {
+    printf("\n--- Analytics ---\n");
+
+    // Total income and expenses
+    printf("Monthly Income: $%.2f\n", budget->income);
+
+    float total_expenses = 0;
+    for (int i = 0; i < budget->num_expenses; i++) {
+        total_expenses += budget->expenses[i].amount;
+    }
+    printf("Total Expenses: $%.2f\n", total_expenses);
+
+    // Expenses by category
+    printf("\nExpenses by Category:\n");
+    for (int i = 0; i < budget->num_expenses; i++) {
+        printf("%s: $%.2f\n", budget->expenses[i].category, budget->expenses[i].amount);
+    }
+
+    // Savings progress
+    printf("\n--- Savings Progress ---\n");
+    float total_saved = 0;
+    for (int i = 0; i < budget->num_goals; i++) {
+        float progress = (budget->goals[i].saved_amount / budget->goals[i].target_amount) * 100;
+        printf("%s: $%.2f / $%.2f (%.2f%% complete)\n", 
+               budget->goals[i].name, 
+               budget->goals[i].saved_amount, 
+               budget->goals[i].target_amount, 
+               progress);
+        total_saved += budget->goals[i].saved_amount;
+    }
+    printf("Total Savings: $%.2f\n", total_saved);
+
+    // Remaining budget
+    float remaining_budget = budget->income - total_expenses - total_saved;
+    printf("\nRemaining Budget: $%.2f\n", remaining_budget);
+}
+
+// Function to save the budget to a file
 void saveBudgetToFile(const Budget *budget, const char *filename) {
     FILE *file = fopen(filename, "w");
     if (!file) {
