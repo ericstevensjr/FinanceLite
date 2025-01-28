@@ -1,43 +1,44 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
-#define MAX_CATEGORIES 10       // Maximum number of expense categories
-#define MAX_NAME_LENGTH 50      // Maximum length for names/descriptions
-#define MAX_GOALS 5             // Maximum number of savings goals
-#define MAX_RECURRING 10        // Maximum number of recurring entries
+#define MAX_CATEGORIES 10       
+#define MAX_NAME_LENGTH 50
+#define MAX_GOALS 5             
+#define MAX_RECURRING 10        
 
 // Data structure for individual expenses
 typedef struct {
-    char category[MAX_NAME_LENGTH]; // Category name
-    float amount;                   // Expense amount
+    char category[MAX_NAME_LENGTH]; 
+    float amount;                   
 } Expense;
 
 // Data structure for recurring income/expense entries
 typedef struct {
-    char description[MAX_NAME_LENGTH]; // Description of recurring entry
-    float amount;                      // Amount for the recurring entry
+    char description[MAX_NAME_LENGTH]; 
+    float amount;                      
 } RecurringEntry;
 
 // Data structure for savings goals
 typedef struct {
-    char name[MAX_NAME_LENGTH];   // Name of the savings goal
-    float target_amount;          // Total target amount for the goal
-    float saved_amount;           // Amount saved toward the goal
+    char name[MAX_NAME_LENGTH];   
+    float target_amount;          
+    float saved_amount;           
 } SavingsGoal;
 
 // Main budget structure
 typedef struct {
-    float income;                     // Total monthly income
-    int days_in_month;                // Number of days in the current month
-    int num_expenses;                 // Number of one-time expenses
-    Expense expenses[MAX_CATEGORIES]; // Array of one-time expenses
-    int num_goals;                    // Number of savings goals
-    SavingsGoal goals[MAX_GOALS];     // Array of savings goals
-    int num_recurring_income;         // Number of recurring income entries
-    int num_recurring_expenses;       // Number of recurring expense entries
-    RecurringEntry recurring_income[MAX_RECURRING];   // Array of recurring income
-    RecurringEntry recurring_expenses[MAX_RECURRING]; // Array of recurring expenses
+    float income;                 
+    int days_in_month;            
+    int num_expenses;             
+    Expense expenses[MAX_CATEGORIES]; 
+    int num_goals;                    
+    SavingsGoal goals[MAX_GOALS];     
+    int num_recurring_income;         
+    int num_recurring_expenses;       
+    RecurringEntry recurring_income[MAX_RECURRING];   
+    RecurringEntry recurring_expenses[MAX_RECURRING]; 
 } Budget;
 
 // Function prototypes
@@ -54,11 +55,15 @@ void addRecurringExpense(Budget *budget);
 void viewRecurringEntries(const Budget *budget);
 void saveBudgetToFile(const Budget *budget, const char *filename);
 void loadBudgetFromFile(Budget *budget, const char *filename);
+void autoSetDaysInMonth(Budget *budget);
 
 int main() {
-    Budget budget = {0, 30, 0, 0, 0, 0, 0, 0}; // Initialize budget with default values
+    Budget budget = {0, 30, 0, 0, 0, 0, 0, 0}; 
     int choice;
     char filename[] = "finance_lite_data.txt";
+
+    // Auto-set the number of days in the current month
+    autoSetDaysInMonth(&budget);
 
     // Load existing budget from file if available
     loadBudgetFromFile(&budget, filename);
@@ -370,3 +375,37 @@ void loadBudgetFromFile(Budget *budget, const char *filename) {
         printf("No saved data found. Starting fresh.\n");
     }
 }
+
+// Function to calculate the number of days in the current month
+void autoSetDaysInMonth(Budget *budget) {
+    // Get the current time
+    time_t t = time(NULL);
+    // Convert to local time
+    struct tm *current_time = localtime(&t);
+    //tm_mon is 0-based (Jan = 0)
+    int month = current_time->tm_mon + 1;
+    // tm_year is years since 1900
+    int year = current_time->tm_year + 1900;
+
+    // Determine the number of days in the month
+    switch(month) {
+        case 1: case 3: case 5: case 7: case 8: case 10: case 12:
+            budget->days_in_month = 31;
+            break;
+        case 4: case 6: case 9: case 11:
+            budget->days_in_month = 30;
+            break;
+        case 2:
+            if ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)) {
+                budget->days_in_month = 29; // Leap year
+            } else {
+                budget->days_in_month = 28;
+            }
+            break;
+        default:
+            printf("Error: Invalid month.\n");
+            budget-> days_in_month = 30; // Fallback default
+    }
+
+    printf("Days in the current month (%d/%d): %d\n", month, year, budget->days_in_month);
+}   
