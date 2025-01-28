@@ -4,6 +4,7 @@
 
 #define MAX_CATEGORIES 10
 #define MAX_NAME_LENGTH 50
+#define MAX_GOALS 5
 
 typedef struct {
     char category[MAX_NAME_LENGTH];
@@ -11,15 +12,24 @@ typedef struct {
 } Expense;
 
 typedef struct {
+    char name[MAX_NAME_LENGTH];
+    float target_amount;
+    float saved_amount;
+} SavingsGoal;
+
+typedef struct {
     float income;
     int days_in_month;
     int num_expenses;
     Expense expenses[MAX_CATEGORIES];
+    int num_goals;
+    SavingsGoal goals[MAX_GOALS];
 } Budget;
 
 // Function prototypes
 void addIncome(Budget *budget);
 void addExpense(Budget *budget);
+void addSavingsGoal(Budget *budget);
 void calculateDailyBudget(const Budget *budget);
 void saveBudgetToFile(const Budget *budget, const char *filename);
 void loadBudgetFromFile(Budget *budget, const char *filename);
@@ -36,8 +46,9 @@ int main() {
         printf("\n=== Finance Lite ===\n");
         printf("1. Add Monthly Income\n");
         printf("2. Add Expense\n");
-        printf("3. Calculate Daily Budget\n");
-        printf("4. Save and Exit\n");
+        printf("3. Add Savings Goal\n");
+        printf("4. Calculate Daily Budget\n");
+        printf("5. Save and Exit\n");
         printf("Enter your choice: ");
         scanf("%d", &choice);
 
@@ -49,16 +60,19 @@ int main() {
                 addExpense(&budget);
                 break;
             case 3:
-                calculateDailyBudget(&budget);
+                addSavingsGoal(&budget);
                 break;
             case 4:
+                calculateDailyBudget(&budget);
+                break;
+            case 5:
                 saveBudgetToFile(&budget, filename);
                 printf("Budget saved. Goodbye!\n");
                 break;
             default:
                 printf("Invalid choice. Please try again.\n");
         }
-    } while (choice != 4);
+    } while (choice != 5);
     
     return 0;
 }
@@ -84,17 +98,39 @@ void addExpense(Budget *budget) {
     printf("Expense added successfully.\n");
 }
 
+// Function to add a savings goal
+void addSavingsGoal(Budget *budget) {
+    if (budget->num_goals >= MAX_GOALS) {
+        printf("Error: Maximum number of savings goals reached.\n");
+        return;
+    }
+    printf("Enter the name of your savings goal: ");
+    scanf("%s", budget->goals[budget->num_goals].name);
+    printf("Enter the target amount for %s: $", budget->goals[budget->num_goals].name);
+    scanf("%f", &budget->goals[budget->num_goals].target_amount);
+    budget->goals[budget->num_goals].saved_amount = 0; // Initialize saved amount
+    budget->num_goals++;
+    printf("Savings goal added successfully.\n");
+}
+
 // Function to calculate and display the daily budget
 void calculateDailyBudget(const Budget *budget) {
     float total_expenses = 0;
+    float total_savings = 0;
+
     for (int i = 0; i < budget->num_expenses; i++) {
         total_expenses += budget->expenses[i].amount;
     }
 
-    float daily_budget = (budget->income - total_expenses) / budget->days_in_month;
+    for (int i = 0; i < budget->num_goals; i++) {
+        total_savings += (budget->goals[i].target_amount - budget->goals[i].saved_amount) / budget->days_in_month;
+    }
+
+    float daily_budget = (budget->income - total_expenses - total_savings) / budget->days_in_month;
     printf("\n--- Daily Budget ---\n");
     printf("Monthly Income: $%.2f\n", budget->income);
     printf("Total Expenses: $%.2f\n", total_expenses);
+    printf("Savings Allocation (Daily): %.2f\n", total_savings);
     printf("Daily Budget: $%.2f\n", daily_budget);
 }
 
