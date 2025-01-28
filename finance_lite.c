@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <cjson/cJSON.h>
 
 #define MAX_CATEGORIES 10       
 #define MAX_NAME_LENGTH 50
@@ -53,8 +54,8 @@ void manageRecurringEntries(Budget *budget);
 void addRecurringIncome(Budget *budget);
 void addRecurringExpense(Budget *budget);
 void viewRecurringEntries(const Budget *budget);
-void saveBudgetToFile(const Budget *budget, const char *filename);
-void loadBudgetFromFile(Budget *budget, const char *filename);
+void saveBudgetToJSON(const Budget *budget, const char *filename);
+void loadBudgetFromJSON(Budget *budget, const char *filename);
 void autoSetDaysInMonth(Budget *budget);
 
 int main() {
@@ -66,7 +67,7 @@ int main() {
     autoSetDaysInMonth(&budget);
 
     // Load existing budget from file if available
-    loadBudgetFromFile(&budget, filename);
+    loadBudgetFromJSON(&budget, filename);
 
     do {
         // Display the main menu
@@ -109,7 +110,7 @@ int main() {
                 manageRecurringEntries(&budget);
                 break;
             case 9:
-                saveBudgetToFile(&budget, filename);
+                saveBudgetToJSON(&budget, filename);
                 printf("Budget saved. Goodbye!\n");
                 break;
             default:
@@ -353,29 +354,6 @@ void viewRecurringEntries(const Budget *budget) {
     }
 }
 
-// Function to save the budget to a file
-void saveBudgetToFile(const Budget *budget, const char *filename) {
-    FILE *file = fopen(filename, "w");
-    if (!file) {
-        printf("Error: Could not save data.\n");
-        return;
-    }
-    fwrite(budget, sizeof(Budget), 1, file);
-    fclose(file);
-}
-
-// Function to load the budget from a file
-void loadBudgetFromFile(Budget *budget, const char *filename) {
-    FILE *file = fopen(filename, "r");
-    if (file) {
-        fread(budget, sizeof(Budget), 1, file);
-        fclose(file);
-        printf("Budget loaded successfully.\n");
-    } else {
-        printf("No saved data found. Starting fresh.\n");
-    }
-}
-
 // Function to calculate the number of days in the current month
 void autoSetDaysInMonth(Budget *budget) {
     // Get the current time
@@ -409,3 +387,144 @@ void autoSetDaysInMonth(Budget *budget) {
 
     printf("Days in the current month (%d/%d): %d\n", month, year, budget->days_in_month);
 }   
+
+void saveBudgetToJSON(const Budget *budget, const char *filename) {
+    // Create a JSON object
+    cJSON *json_budget = cJSON_CreateObject();
+
+    // Add income and days in month
+    cJSON_AddNumberToObject(json_budget, "income", budget->income);
+    cJSON_AddNumberToObject(json_budget, "days_in_month", budget->days_in_month);
+
+    // Add expenses
+    cJSON *json_expenses = cJSON_CreateArray();
+    for (int i = 0; i < budget->num_expenses; i++) {
+        cJSON *expense = cJSON_CreateObject();
+        cJSON_AddStringToObject(expense, "category", budget->expenses[i].category);
+        cJSON_AddNumberToObject(expense, "amount", budget->expenses[i].amount);
+        cJSON_AddItemToArray(json_expenses, expense);
+    }
+    cJSON_AddItemToObject(json_budget, "expenses", json_expenses);
+
+    // Add savings goals
+    cJSON *json_goals = cJSON_CreateArray();
+    for (int i = 0; i < budget->num_goals; i++) {
+        cJSON *goal = cJSON_CreateObject();
+        cJSON_AddStringToObject(goal, "name", budget->goals[i].name);
+        cJSON_AddNumberToObject(goal, "target_amount", budget->goals[i].target_amount);
+        cJSON_AddNumberToObject(goal, "saved_amount", budget->goals[i].saved_amount);
+        cJSON_AddItemToArray(json_goals, goal);
+    }
+    cJSON_AddItemToObject(json_budget, "savings_goals", json_goals);
+
+    // Add recurring income
+    cJSON *json_recurring_income = cJSON_CreateArray();
+    for (int i = 0; i < budget->num_recurring_income; i++){
+        cJSON *income = cJSON_CreateObject();
+        cJSON_AddStringToObject(income, "description", budget->recurring_income[i].description);
+        cJSON_AddNumberToObject(income, "amount", budget->recurring_income[i].amount);
+        cJSON_AddItemToArray(json_recurring_income, income);
+    }
+    cJSON_AddItemToObject(json_budget, "recurring_income", json_recurring_income);
+
+    // Add recurring expenses
+    cJSON *json_recurring_expenses = cJSON_CreateArray();
+    for (int i = 0; i < budget->num_recurring_expenses; i++) {
+        cJSON *expense = cJSON_CreateObject();
+        cJSON_AddStringToObject(expense, "description", budget->recurring_expenses[i].description);
+        cJSON_AddNumberToObject(expense, "amount", budget->recurring_expenses[i].amount);
+        cJSON_AddItemToArray(json_recurring_expenses, expense);
+    }
+    cJSON_AddItemToObject(json_budget, "recurring_expenses", json_recurring_expenses);
+
+    // Write JSON to file
+    FILE *file = fopen(filename, "w");
+    if (file) {
+        char *json_string = cJSON_Print(json_budget); // Convert JSON to string
+        fprintf(file, "%s", json_string);
+        fclose(file);
+        printf("Budget saved to %s.\n", filename);
+        free(json_string); // Free the string memory
+    } else {
+        printf("Error: Could not save to file.\n");
+    }
+
+    // Free JSON memory
+    cJSON_Delete(json_budget);
+}
+
+// Function to load budget from JSON
+void loadBudgetFromJSON(Budget *budget, const char *filename) {
+    FILE *file = fopen(filename, "r");
+    if (!file) {
+        printf("No saved data found. Starting fresh.\n");
+        return;
+    }
+
+    // Read file content into a buffer
+    fseek(file, 0, SEEK_END);
+    long length = ftell(file);
+    fseek(file, 0, SEEK_SET);
+    char *data = malloc(length + 1);
+    fread(data, 1, length, file);
+    fclose(file);
+
+    // Parse JSON data
+    cJSON *json_budget = cJSON_Parse(data);
+    free(data);
+
+    if (!json_budget) {
+        printf("Error: Could not parse JSON file.\n");
+        return;
+    }
+
+    // Populate budget structure
+    budget->income = cJSON_GetObjectItem(json_budget, "income")->valuedouble;
+    budget->days_in_month = cJSON_GetObjectItem(json_budget, "days_in_month")->valueint;
+
+    // Load expenses
+    cJSON *json_expenses = cJSON_GetObjectItem(json_budget, "expenses");
+    budget->num_expenses = 0;
+    cJSON *expense;
+    cJSON_ArrayForEach(expense, json_expenses) {
+        strcpy(budget->expenses[budget->num_expenses].category, cJSON_GetObjectItem(expense, "category")->valuestring);
+        budget->expenses[budget->num_expenses].amount = cJSON_GetObjectItem(expense, "amount")->valuedouble;
+        budget->num_expenses++;
+    }
+
+    // Load savings goals
+    cJSON *json_goals = cJSON_GetObjectItem(json_budget, "savings_goals");
+    budget->num_goals = 0;
+    cJSON *goal;
+    cJSON_ArrayForEach(goal, json_goals) {
+        strcpy(budget->goals[budget->num_goals].name, cJSON_GetObjectItem(goal, "name")->valuestring);
+        budget->goals[budget->num_goals].target_amount = cJSON_GetObjectItem(goal, "target_amount")->valuedouble;
+        budget->goals[budget->num_goals].saved_amount = cJSON_GetObjectItem(goal, "saved_amount")->valuedouble;
+        budget->num_goals++;
+    }
+
+    // Load recurring income
+    cJSON *json_recurring_income = cJSON_GetObjectItem(json_budget, "recurring_income");
+    budget->num_recurring_income = 0;
+    cJSON *income;
+    cJSON_ArrayForEach(income, json_recurring_income) {
+        strcpy(budget->recurring_income[budget->num_recurring_income].description, cJSON_GetObjectItem(income, "description")->valuestring);
+        budget->recurring_income[budget->num_recurring_income].amount = cJSON_GetObjectItem(income, "amount")->valuedouble;
+        budget->num_recurring_income++;
+    }
+
+    // Load recurring expenses
+    cJSON *json_recurring_expenses = cJSON_GetObjectItem(json_budget, "recurring_expenses");
+    budget->num_recurring_expenses = 0;
+    cJSON *recurring_expense;
+    cJSON_ArrayForEach(recurring_expense, json_recurring_expenses) {
+        strcpy(budget->recurring_expenses[budget->num_recurring_expenses].description, cJSON_GetObjectItem(recurring_expense, "description")->valuestring);
+        budget->recurring_expenses[budget->num_recurring_expenses].amount = cJSON_GetObjectItem(recurring_expense, "amount")->valuedouble;
+        budget->num_recurring_expenses++;
+    }
+
+    printf("Budget loaded from %s.\n", filename);
+
+    // Free JSON memory
+    cJSON_Delete(json_budget);
+}
