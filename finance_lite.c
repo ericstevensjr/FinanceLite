@@ -65,13 +65,21 @@ int main() {
 
 // Function to add income
 void addIncome(Budget *budget) {
+    printf("Enter your monthly income: $");
+    scanf("%f", &budget->income);
+    printf("Income updated: $%.2f\n", budget->income);
+}
+
+// Function to add an expense
+void addExpense(Budget *budget) {
     if (budget->num_expenses >= MAX_CATEGORIES) {
-        printf("ErrorL MAximum number of expense categories reached.\n");
+        printf("Error: Maximum number of expense categories reached.\n");
         return;
     }
     printf("Enter expense category: ");
     scanf("%s", budget->expenses[budget->num_expenses].category);
-    printf("Enter amuont for %s: $", budget->expenses[budget->num_expenses].category);
+    printf("Enter amount for %s: $", budget->expenses[budget->num_expenses].category);
+    scanf("%f", &budget->expenses[budget->num_expenses].amount);
     budget->num_expenses++;
     printf("Expense added successfully.\n");
 }
