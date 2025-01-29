@@ -28,6 +28,7 @@ void fetchExpenses(sqlite3 *db);
 void calculateDailyBudget(sqlite3 *db, Budget *budget);
 void showAnalytics(sqlite3 *db);
 void saveBudgetToJSON(sqlite3 *db, const char *filename);
+void applyRecurringTransactions(sqlite3 *db);
 
 int main() {
     sqlite3 *db;
@@ -39,6 +40,9 @@ int main() {
 
     // Auto-set the number of days in the current month
     autoSetDaysInMonth(&budget);
+
+    // Apply recurring transactions at startup
+    applyRecurringTransactions(db);
 
     do {
         printf("\n=== Finance Lite ===\n");
@@ -177,6 +181,19 @@ void initializeDatabase(sqlite3 **db, const char *db_name) {
     char *err_msg = NULL;
     if (sqlite3_exec(*db, sql, 0, 0, &err_msg) != SQLITE_OK) {
         printf("Error: Failed to create tables: %s\n", err_msg);
+        sqlite3_free(err_msg);
+        sqlite3_close(*db);
+        exit(1);
+    }
+
+    const char *create_last_month_table_sql = 
+        "CREATE TABLE IF NOT EXISTS last_processed_month ("
+        "id INTEGER PRIMARY KEY, "
+        "year INTEGER NOT NULL, "
+        "month INTEGER NOT NULL);";
+
+    if (sqlite3_exec(*db, create_last_month_table_sql, 0, 0, &err_msg) != SQLITE_OK) {
+        printf("Error: Failed to create last_processed_month table: %s\n", err_msg);
         sqlite3_free(err_msg);
         sqlite3_close(*db);
         exit(1);
@@ -503,4 +520,83 @@ void saveBudgetToJSON(sqlite3 *db, const char *filename) {
 
     // Free memory
     cJSON_Delete(json_budget);
+}
+
+// Function to retrieve the last month processed
+void getLastProcessedMonth(sqlite3 *db, int *year, int *month) {
+    const char *sql = "SELECT year, month FROM last_processed_month WHERE id = 1;";
+    sqlite3_stmt *stmt;
+
+    *year = 0;
+    *month = 0;
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            *year = sqlite3_column_int(stmt, 0);
+            *month = sqlite3_column_int(stmt, 1);
+        }
+    }
+    sqlite3_finalize(stmt);
+}
+
+// Function to update the last processed month
+void updateLastProcessedMonth(sqlite3 *db, int year, int month) {
+    const char *sql = "INSERT INTO last_processed_month (id, year, month) VALUES (1, ?, ?) "
+                      "ON CONFLICT(id) DO UPDATE SET year = excluded.year, month = excluded.month;";
+    sqlite3_stmt *stmt;
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, year);
+        sqlite3_bind_int(stmt, 2, month);
+        sqlite3_step(stmt);
+    }
+
+    sqlite3_finalize(stmt);
+}
+
+// Function to apply recurring entries automatically
+void applyRecurringTransactions(sqlite3 *db) {
+    // Get current date
+    time_t t = time(NULL);
+    struct tm *current_time = localtime(&t);
+    int current_year = current_time->tm_year + 1900;
+    int current_month = current_time->tm_mon + 1;
+
+    // Get last processed month from the database
+    int last_year, last_month;
+    getLastProcessedMonth(db, &last_year, &last_month);
+
+    // Check if we've already processed this month
+    if (last_year == current_year && last_month == current_month) {
+        return; // No need to reprocess
+    }
+
+    printf("\nApplying recurring income and expenses for %d/%d...\n", current_month, current_year);
+
+    // Process recurring income
+    const char *income_sql = "SELECT description, amount FROM recurring WHERE type = 'income';";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, income_sql, -1, &stmt, NULL) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char *description = (const char *)sqlite3_column_text(stmt, 0);
+            float amount = sqlite3_column_double(stmt, 1);
+            insertIncome(db, amount, "CURRENT_DATE"); // Insert into income table
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    // Process recurring expenses
+    const char *expense_sql = "SELECT description, amount FROM recurring WHERE type = 'expense';";
+    if (sqlite3_prepare_v2(db, expense_sql, -1, &stmt, NULL) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char *description = (const char *)sqlite3_column_text(stmt, 0);
+            float amount = sqlite3_column_double(stmt, 1);
+            insertExpense(db, description, amount, "CURRENT_DATE"); // Insert into expenses table
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    // Update last processed month
+    updateLastProcessedMonth(db, current_year, current_month);
+    printf("Recurring transactions applied successfully.\n");
 }
