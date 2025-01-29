@@ -10,6 +10,7 @@
 #include <time.h>
 #include <cjson/cJSON.h>
 
+// Function to initialize database
 void initializeDatabase(sqlite3 **db, const char *db_name) {
     if (sqlite3_open(db_name, db) != SQLITE_OK) {
         printf("Error: Unable to open database: %s\n", sqlite3_errmsg(*db));
