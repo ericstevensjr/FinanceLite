@@ -1,3 +1,4 @@
+#define _XOPEN_SOURCE 700
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,88 +9,85 @@
 // Define constants
 #define MAX_NAME_LENGTH 50       
 
-// Structure to hold budget information
+// Budget structure to hold user budget information
 typedef struct {
     float income;
+    float expenses;
+    float savings_goal;
     int days_in_month;
 } Budget;
 
 // Function prototypes
 void autoSetDaysInMonth(Budget *budget);
 void initializeDatabase(sqlite3 **db, const char *db_name);
-void insertIncome(sqlite3 *db, float amount, const char *date);
-void insertExpense(sqlite3 *db, const char *category, float amount, const char *date);
-void insertSavingsGoal(sqlite3 *db, const char *name, float target_amount);
+void insertIncome(sqlite3 *db);
+void insertExpense(sqlite3 *db);
+void insertSavingsGoal(sqlite3 *db, const char *name, float target_amount, const char *due_date);
 void updateSavingsGoal(sqlite3 *db, int goal_id, float amount);
 void fetchSavingsGoals(sqlite3 *db);
-void insertRecurringEntry(sqlite3 *db, const char *type, const char *description, float amount);
-void fetchRecurringEntries(sqlite3 *db);
-void fetchExpenses(sqlite3 *db);
 void calculateDailyBudget(sqlite3 *db, Budget *budget);
 void showAnalytics(sqlite3 *db);
-void saveBudgetToJSON(sqlite3 *db, const char *filename);
 void applyRecurringTransactions(sqlite3 *db);
+void manageRecurringEntries(sqlite3 *db);
+void removeSavingsGoal(sqlite3 *db);
+void fetchRecurringEntries(sqlite3 *db);
+void editRecurringEntry(sqlite3 *db);
+void removeRecurringEntry(sqlite3 *db);
+void saveBudgetToJSON(sqlite3 *db, const char *filename);
 
 int main() {
     sqlite3 *db;
     initializeDatabase(&db, "finance_lite.db");
 
-    Budget budget = {0, 30}; 
+    Budget budget = {0, 0, 0, 30}; 
     int choice;
     char filename[] = "finance_lite_backup.json"; // Default filename for JSON export
 
-    // Auto-set the number of days in the current month
     autoSetDaysInMonth(&budget);
-
-    // Apply recurring transactions at startup
     applyRecurringTransactions(db);
 
     do {
         printf("\n=== Finance Lite ===\n");
-        printf("1. Add Monthly Income\n");
+        printf("1. Add Income\n");
         printf("2. Add Expense\n");
         printf("3. Add Savings Goal\n");
         printf("4. Update Savings Goal Progress\n");
         printf("5. Show Savings Progress\n");
         printf("6. Calculate Daily Budget\n");
         printf("7. Show Analytics\n");
-        printf("8. Manage Recurring Entries\n");
+        printf("8. Manage Recurring Entries and Savings\n");
         printf("9. Export Budget to JSON\n");
         printf("10. Save and Exit\n");
         printf("Enter your choice: ");
         scanf("%d", &choice);
+        getchar(); // Consume newline left in buffer
 
         switch (choice) {
-            case 1: {
-                float income;
-                char date[20];
-                printf("Enter your monthly income: $");
-                scanf("%f", &income);
-                printf("Enter date (YYYY-MM-DD): ");
-                scanf("%s", date);
-                insertIncome(db, income, date);
+            case 1:
+                insertIncome(db);
                 break;
-            }
-            case 2: {
-                char category[MAX_NAME_LENGTH], date[20];
-                float amount;
-                printf("Enter expense category: ");
-                scanf("%s", category);
-                printf("Enter amount: $");
-                scanf("%f", &amount);
-                printf("Enter date (YYYY-MM-DD): ");
-                scanf("%s", date);
-                insertExpense(db, category, amount, date);
+            case 2:
+                insertExpense(db);
                 break;
-            }
             case 3: {
-                char name[MAX_NAME_LENGTH];
+                char name[MAX_NAME_LENGTH], due_date[11];
                 float target_amount;
+
                 printf("Enter savings goal name: ");
-                scanf("%s", name);
+                fgets(name, MAX_NAME_LENGTH, stdin);
+                name[strcspn(name, "\n")] = 0; // Remove trailing newline
+
                 printf("Enter target amount: $");
-                scanf("%f", &target_amount);
-                insertSavingsGoal(db, name, target_amount);
+                if (scanf("%f", &target_amount) != 1 || target_amount <= 0) {
+                    printf("Error: Invalid target amount.\n");
+                    while (getchar() != '\n'); // Clear buffer
+                    break;
+                }
+
+                printf("Enter due date (YYYY-MM-DD): ");
+                scanf("%10s", due_date);
+
+                insertSavingsGoal(db, name, target_amount, due_date);
                 break;
             }
             case 4: {
@@ -113,7 +111,7 @@ int main() {
                 showAnalytics(db);
                 break;
             case 8:
-                fetchRecurringEntries(db);
+                manageRecurringEntries(db);
                 break;
             case 9:
                 saveBudgetToJSON(db, filename);
@@ -121,25 +119,25 @@ int main() {
             case 10: {
                 char confirm_exit;
                 printf("\nAre you sure you want to exit? (Y/N): ");
-                scanf(" %c", &confirm_exit);
+                scanf(" %c", &confirm_exit); // Notice the space before %c to catch newline character
 
                 if (confirm_exit == 'Y' || confirm_exit == 'y') {
                     printf("Budget saved. Goodbye!\n");
                     sqlite3_close(db);
                     exit(0); // Exits only if user confirms
-                } 
-
+                }
+                choice = -1;
                 printf("Returning to menu...\n");
-                choice = -1; // Reset choice so the loop continues
-                break; 
+                break; // Return to the main menu if not exiting
             }
             default:
                 printf("Invalid choice. Please try again.\n");
         }
-    } while (choice != 10);
+    } while (choice != 10); // Exit loop when choice is 10 (Save and Exit)
 
     return 0;
 }
+
 
 
 // Function to determine the number of days in the current month
@@ -165,7 +163,7 @@ void autoSetDaysInMonth(Budget *budget) {
     printf("Days in the current month (%d/%d): %d\n", month, year, budget->days_in_month);
 }
 
-// Function to initialize SQLite database
+// Function to initialize database and ensure schema is up to date
 void initializeDatabase(sqlite3 **db, const char *db_name) {
     if (sqlite3_open(db_name, db) != SQLITE_OK) {
         printf("Error: Unable to open database: %s\n", sqlite3_errmsg(*db));
@@ -173,10 +171,12 @@ void initializeDatabase(sqlite3 **db, const char *db_name) {
     }
 
     const char *sql =
-        "CREATE TABLE IF NOT EXISTS income (id INTEGER PRIMARY KEY, amount REAL, date TEXT);"
-        "CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY, category TEXT, amount REAL, date TEXT);"
-        "CREATE TABLE IF NOT EXISTS savings_goals (id INTEGER PRIMARY KEY, name TEXT, target_amount REAL, saved_amount REAL);"
-        "CREATE TABLE IF NOT EXISTS recurring (id INTEGER PRIMARY KEY, type TEXT, description TEXT, amount REAL);";
+        "CREATE TABLE IF NOT EXISTS savings_goals ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "name TEXT NOT NULL, "
+        "target_amount REAL, "
+        "saved_amount REAL DEFAULT 0, "
+        "due_date TEXT);";
 
     char *err_msg = NULL;
     if (sqlite3_exec(*db, sql, 0, 0, &err_msg) != SQLITE_OK) {
@@ -186,170 +186,303 @@ void initializeDatabase(sqlite3 **db, const char *db_name) {
         exit(1);
     }
 
-    const char *create_last_month_table_sql = 
-        "CREATE TABLE IF NOT EXISTS last_processed_month ("
-        "id INTEGER PRIMARY KEY, "
-        "year INTEGER NOT NULL, "
-        "month INTEGER NOT NULL);";
-
-    if (sqlite3_exec(*db, create_last_month_table_sql, 0, 0, &err_msg) != SQLITE_OK) {
-        printf("Error: Failed to create last_processed_month table: %s\n", err_msg);
-        sqlite3_free(err_msg);
-        sqlite3_close(*db);
-        exit(1);
-    }
-
     printf("Database initialized successfully.\n");
 }
 
-
 // Function to insert income
-void insertIncome(sqlite3 *db, float amount, const char *date) {
-    if (amount <= 0) {
-        printf("Error: Income must be a positive number.\n");
+void insertIncome(sqlite3 *db) {
+    float amount;
+    int is_recurring;
+    char date[20];
+
+    printf("Enter income amount: $");
+    if (scanf("%f", &amount) != 1 || amount <= 0) {
+        printf("Error: Invalid income amount.\n");
         return;
     }
 
-    const char *sql = "INSERT INTO income (amount, date) VALUES (?, ?);";
-    sqlite3_stmt *stmt;
-
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-        printf("Error: Failed to prepare income statement: %s\n", sqlite3_errmsg(db));
+    printf("Is this recurring income? (1 = Yes, 0 = No): ");
+    if (scanf("%d", &is_recurring) != 1) {
+        printf("Error: Invalid choice.\n");
         return;
     }
 
-    sqlite3_bind_double(stmt, 1, amount);
-    sqlite3_bind_text(stmt, 2, date, -1, SQLITE_STATIC);
+    // Automatically set today's date unless the user chooses to enter a past date
+    time_t t = time(NULL);
+    struct tm *tm_info = localtime(&t);
+    strftime(date, sizeof(date), "%Y-%m-%d", tm_info);
 
-    if (sqlite3_step(stmt) != SQLITE_DONE) {
-        printf("Error: Could not insert income: %s\n", sqlite3_errmsg(db));
+    int use_custom_date;
+    printf("Do you need to enter an older date? (1 = Yes, 0 = No): ");
+    if (scanf("%d", &use_custom_date) == 1 && use_custom_date == 1) {
+        printf("Enter date (YYYY-MM-DD): ");
+        scanf("%s", date);
+    }
+
+    if (is_recurring) {
+        // Insert into recurring income table
+        const char *sql = "INSERT INTO recurring (type, description, amount) VALUES ('income', 'Recurring Income', ?);";
+        sqlite3_stmt *stmt;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+            sqlite3_bind_double(stmt, 1, amount);
+            if (sqlite3_step(stmt) == SQLITE_DONE) {
+                printf("Recurring income added: $%.2f\n", amount);
+            } else {
+                printf("Error: Failed to add recurring income: %s\n", sqlite3_errmsg(db));
+            }
+        }
+        sqlite3_finalize(stmt);
     } else {
-        printf("Income added successfully: $%.2f\n", amount);
+        // Insert into one-time income table
+        const char *sql = "INSERT INTO income (amount, date) VALUES (?, ?);";
+        sqlite3_stmt *stmt;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+            sqlite3_bind_double(stmt, 1, amount);
+            sqlite3_bind_text(stmt, 2, date, -1, SQLITE_STATIC);
+            if (sqlite3_step(stmt) == SQLITE_DONE) {
+                printf("One-time income added: $%.2f on %s\n", amount, date);
+            } else {
+                printf("Error: Failed to add one-time income: %s\n", sqlite3_errmsg(db));
+            }
+        }
+        sqlite3_finalize(stmt);
     }
-
-    sqlite3_finalize(stmt);
 }
 
-// Function to insert expense
-void insertExpense(sqlite3 *db, const char *category, float amount, const char *date) {
-    if (amount <= 0) {
-        printf("Error: Expense amount must be positive.\n");
+void insertExpense(sqlite3 *db) {
+    char category[MAX_NAME_LENGTH];
+    float amount;
+    int is_recurring;
+    char date[20];
+
+    printf("Enter expense category: ");
+    scanf("%s", category);
+
+    printf("Enter amount: $");
+    if (scanf("%f", &amount) != 1 || amount <= 0) {
+        printf("Error: Invalid expense amount.\n");
         return;
     }
 
-    if (strlen(category) == 0 || strlen(category) > MAX_NAME_LENGTH) {
-        printf("Error: Invalid category name. Must be 1-%d characters.\n", MAX_NAME_LENGTH);
+    printf("Is this a recurring expense? (1 = Yes, 0 = No): ");
+    if (scanf("%d", &is_recurring) != 1) {
+        printf("Error: Invalid choice.\n");
         return;
     }
 
-    const char *sql = "INSERT INTO expenses (category, amount, date) VALUES (?, ?, ?);";
-    sqlite3_stmt *stmt;
+    // Automatically set today's date unless the user wants to enter a past date
+    time_t t = time(NULL);
+    struct tm *tm_info = localtime(&t);
+    strftime(date, sizeof(date), "%Y-%m-%d", tm_info);
 
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-        printf("Error: Failed to prepare expense statement: %s\n", sqlite3_errmsg(db));
-        return;
+    int use_custom_date;
+    printf("Do you need to enter an older date? (1 = Yes, 0 = No): ");
+    if (scanf("%d", &use_custom_date) == 1 && use_custom_date == 1) {
+        printf("Enter date (YYYY-MM-DD): ");
+        scanf("%s", date);
     }
 
-    sqlite3_bind_text(stmt, 1, category, -1, SQLITE_STATIC);
-    sqlite3_bind_double(stmt, 2, amount);
-    sqlite3_bind_text(stmt, 3, date, -1, SQLITE_STATIC);
-
-    if (sqlite3_step(stmt) != SQLITE_DONE) {
-        printf("Error: Could not insert expense: %s\n", sqlite3_errmsg(db));
-    } else {
-        printf("Expense added successfully: %s - $%.2f\n", category, amount);
+    if (is_recurring) {
+        // Insert into recurring expense table
+        const char *sql = "INSERT INTO recurring (type, description, amount) VALUES ('expense', ?, ?);";
+        sqlite3_stmt *stmt;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, category, -1, SQLITE_STATIC);
+            sqlite3_bind_double(stmt, 2, amount);
+            if (sqlite3_step(stmt) == SQLITE_DONE) {
+                printf("Recurring expense added: %s - $%.2f\n", category, amount);
+            } else {
+                printf("Error: Failed to add recurring expense: %s\n", sqlite3_errmsg(db));
+            }
+        }
+        sqlite3_finalize(stmt);
     }
-
-    sqlite3_finalize(stmt);
 }
 
 
-// Function to insert savings goal
-void insertSavingsGoal(sqlite3 *db, const char *name, float target_amount) {
-    if (target_amount <= 0) {
-        printf("Error: Target amount must be positive.\n");
-        return;
-    }
-
-    if (strlen(name) == 0 || strlen(name) > MAX_NAME_LENGTH) {
-        printf("Error: Invalid savings goal name. Must be 1-%d characters.\n", MAX_NAME_LENGTH);
-        return;
-    }
-
-    const char *sql = "INSERT INTO savings_goals (name, target_amount, saved_amount) VALUES (?, ?, 0);";
+// Function to insert a savings goal
+void insertSavingsGoal(sqlite3 *db, const char *name, float target_amount, const char *due_date) {
+    const char *sql = "INSERT INTO savings_goals (name, target_amount, saved_amount, due_date) VALUES (?, ?, 0, ?);";
     sqlite3_stmt *stmt;
 
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-        printf("Error: Failed to prepare savings goal statement: %s\n", sqlite3_errmsg(db));
-        return;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
+        sqlite3_bind_double(stmt, 2, target_amount);
+        sqlite3_bind_text(stmt, 3, due_date, -1, SQLITE_STATIC);
+
+        if (sqlite3_step(stmt) == SQLITE_DONE) {
+            printf("Savings goal added: %s - Target: $%.2f, Due: %s\n", name, target_amount, due_date);
+        } else {
+            printf("Error: Failed to add savings goal: %s\n", sqlite3_errmsg(db));
+        }
     }
-
-    sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
-    sqlite3_bind_double(stmt, 2, target_amount);
-
-    if (sqlite3_step(stmt) != SQLITE_DONE) {
-        printf("Error: Could not insert savings goal: %s\n", sqlite3_errmsg(db));
-    } else {
-        printf("Savings goal added successfully: %s - Target: $%.2f\n", name, target_amount);
-    }
-
     sqlite3_finalize(stmt);
 }
 
 
 // Function to update savings goal
 void updateSavingsGoal(sqlite3 *db, int goal_id, float amount) {
-    const char *sql = "UPDATE savings_goals SET saved_amount = saved_amount + ? WHERE id = ?;";
+    const char *sql = "UPDATE savings_goals SET saved_amount = saved_amount + ? WHERE id = ? RETURNING id;";
     sqlite3_stmt *stmt;
     sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
     sqlite3_bind_double(stmt, 1, amount);
     sqlite3_bind_int(stmt, 2, goal_id);
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
-    printf("Savings goal updated successfully.\n");
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        printf("Savings goal updated successfully.\n");
+    } else {
+        printf("Error: Goal ID not found.\n");
+    }   
 }
 
 // Function to fetch and display savings goals
 void fetchSavingsGoals(sqlite3 *db) {
-    const char *sql = "SELECT name, target_amount, saved_amount FROM savings_goals;";
+    const char *sql = "SELECT id, name, target_amount, saved_amount, due_date FROM savings_goals;";
     sqlite3_stmt *stmt;
     sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
     printf("\n--- Savings Goals ---\n");
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-        printf("Goal: %s, Target: $%.2f, Saved: $%.2f\n", 
-               sqlite3_column_text(stmt, 0), 
-               sqlite3_column_double(stmt, 1), 
-               sqlite3_column_double(stmt, 2));
+        printf("[ID: %d] Goal: %s, Target: $%.2f, Saved: $%.2f, Due: %s\n",
+            sqlite3_column_int(stmt, 0),  // ID
+            sqlite3_column_text(stmt, 1),  // Name
+            sqlite3_column_double(stmt, 2), // Target amount
+            sqlite3_column_double(stmt, 3), // Saved amount
+            sqlite3_column_text(stmt, 4)); // Due date
     }
     sqlite3_finalize(stmt);
 }
+
 
 // Function to insert recurring entry
-void insertRecurringEntry(sqlite3 *db, const char *type, const char *description, float amount) {
+void insertRecurringEntry(sqlite3 *db, const char *type) {
+    char description[MAX_NAME_LENGTH];
+    float amount;
+
+    printf("Enter description for recurring %s: ", type);
+    scanf("%s", description);
+
+    printf("Enter amount: $");
+    scanf("%f", &amount);
+
     const char *sql = "INSERT INTO recurring (type, description, amount) VALUES (?, ?, ?);";
     sqlite3_stmt *stmt;
-    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
-    sqlite3_bind_text(stmt, 1, type, -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 2, description, -1, SQLITE_STATIC);
-    sqlite3_bind_double(stmt, 3, amount);
-    sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    printf("Recurring entry added successfully.\n");
-}
 
-// Function to fetch recurring entries
-void fetchRecurringEntries(sqlite3 *db) {
-    const char *sql = "SELECT type, description, amount FROM recurring;";
-    sqlite3_stmt *stmt;
-    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
-    printf("\n--- Recurring Entries ---\n");
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        printf("Type: %s, Description: %s, Amount: $%.2f\n",
-               sqlite3_column_text(stmt, 0),
-               sqlite3_column_text(stmt, 1),
-               sqlite3_column_double(stmt, 2));
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, type, -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 2, description, -1, SQLITE_STATIC);
+        sqlite3_bind_double(stmt, 3, amount);
+
+        if (sqlite3_step(stmt) == SQLITE_DONE) {
+            printf("Recurring %s added: %s - $%.2f\n", type, description, amount);
+        } else {
+            printf("Error: Failed to add recurring %s: %s\n", type, sqlite3_errmsg(db));
+        }
     }
     sqlite3_finalize(stmt);
+}
+
+// Function to manage recurring entries and savings goals
+void manageRecurringEntries(sqlite3 *db) {
+    int choice;
+    do {
+        printf("\n--- Manage Recurring Entries & Savings Goals ---\n");
+        printf("1. Add Recurring Income\n");
+        printf("2. Add Recurring Expense\n");
+        printf("3. View Recurring Entries\n");
+        printf("4. Edit Recurring Entry\n");
+        printf("5. Remove Recurring Entry\n");
+        printf("6. View Savings Goals\n");
+        printf("7. Remove Savings Goal\n");  // Added option for removing savings goals
+        printf("8. Return to Main Menu\n");
+        printf("Enter your choice: ");
+        scanf("%d", &choice);
+
+        switch (choice) {
+            case 1:
+                insertRecurringEntry(db, "income");
+                break;
+            case 2:
+                insertRecurringEntry(db, "expense");
+                break;
+            case 3:
+                fetchRecurringEntries(db);
+                break;
+            case 4:
+                editRecurringEntry(db);
+                break;
+            case 5:
+                removeRecurringEntry(db);
+                break;
+            case 6:
+                fetchSavingsGoals(db);
+                break;
+            case 7:
+                removeSavingsGoal(db);  // Handle remove savings goal
+                break;
+            case 8:
+                return;  // Return to the main menu
+            default:
+                printf("Invalid choice. Try again.\n");
+        }
+    } while (choice != 8);
+}
+
+// Function to remove savings goal by ID or Name
+// Function to remove savings goal by ID or Name after displaying the list
+void removeSavingsGoal(sqlite3 *db) {
+    int choice;
+    int goal_id;
+    char goal_name[MAX_NAME_LENGTH];
+
+    // Display all savings goals first
+    fetchSavingsGoals(db);
+
+    // Ask user to choose removal method
+    printf("\nEnter 1 to remove by ID or 2 to remove by Name: ");
+    scanf("%d", &choice);
+
+    if (choice == 1) {
+        // Remove by ID
+        printf("Enter the ID of the savings goal you want to remove: ");
+        scanf("%d", &goal_id);
+
+        const char *sql = "DELETE FROM savings_goals WHERE id = ?;";
+        sqlite3_stmt *stmt;
+
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+            sqlite3_bind_int(stmt, 1, goal_id);
+            if (sqlite3_step(stmt) == SQLITE_DONE) {
+                printf("Savings goal removed successfully!\n");
+            } else {
+                printf("Error: Failed to remove savings goal: %s\n", sqlite3_errmsg(db));
+            }
+        }
+        sqlite3_finalize(stmt);
+
+    } else if (choice == 2) {
+        // Remove by Name
+        printf("Enter the name of the savings goal you want to remove: ");
+        getchar(); // Consume the newline character left by previous scanf
+        fgets(goal_name, MAX_NAME_LENGTH, stdin);
+        goal_name[strcspn(goal_name, "\n")] = 0; // Remove trailing newline
+
+        const char *sql = "DELETE FROM savings_goals WHERE name = ?;";
+        sqlite3_stmt *stmt;
+
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, goal_name, -1, SQLITE_STATIC);
+            if (sqlite3_step(stmt) == SQLITE_DONE) {
+                printf("Savings goal removed successfully!\n");
+            } else {
+                printf("Error: Failed to remove savings goal: %s\n", sqlite3_errmsg(db));
+            }
+        }
+        sqlite3_finalize(stmt);
+
+    } else {
+        printf("Invalid choice.\n");
+    }
 }
 
 // Function to fetch expenses
@@ -369,12 +502,95 @@ void fetchExpenses(sqlite3 *db) {
 
 // Function to calculate daily budget
 void calculateDailyBudget(sqlite3 *db, Budget *budget) {
+    float total_income = 0;
     float total_expenses = 0;
-    fetchExpenses(db);
-    float daily_budget = (budget->income - total_expenses) / budget->days_in_month;
-    printf("\nDaily Budget: $%.2f\n", daily_budget);
-}
+    float total_savings_today = 0;
 
+    // Fetch total income (recurring + one-time)
+    const char *income_sql = "SELECT IFNULL(SUM(amount), 0) FROM income;";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, income_sql, -1, &stmt, NULL) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            total_income = sqlite3_column_double(stmt, 0);
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    // Fetch recurring income (if any)
+    const char *recurring_income_sql = "SELECT IFNULL(SUM(amount), 0) FROM recurring WHERE type = 'income';";
+    if (sqlite3_prepare_v2(db, recurring_income_sql, -1, &stmt, NULL) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            total_income += sqlite3_column_double(stmt, 0);
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    // Fetch total expenses (recurring + one-time)
+    const char *expense_sql = "SELECT IFNULL(SUM(amount), 0) FROM expenses;";
+    if (sqlite3_prepare_v2(db, expense_sql, -1, &stmt, NULL) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            total_expenses = sqlite3_column_double(stmt, 0);
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    // Fetch recurring expenses (if any)
+    const char *recurring_expense_sql = "SELECT IFNULL(SUM(amount), 0) FROM recurring WHERE type = 'expense';";
+    if (sqlite3_prepare_v2(db, recurring_expense_sql, -1, &stmt, NULL) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            total_expenses += sqlite3_column_double(stmt, 0);
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    // Fetch savings goal data and calculate daily savings goal
+    const char *savings_sql = "SELECT target_amount, saved_amount, due_date FROM savings_goals;";
+    if (sqlite3_prepare_v2(db, savings_sql, -1, &stmt, NULL) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            float target_amount = sqlite3_column_double(stmt, 0);
+            float saved_amount = sqlite3_column_double(stmt, 1);
+            const char *due_date = (const char *)sqlite3_column_text(stmt, 2);
+
+            if (due_date == NULL || strlen(due_date) == 0) {
+                printf("Warning: Invalid due date for savings goal. Skipping...\n");
+                continue;
+            }
+
+            // Parse the due date to calculate how many days left
+            struct tm due_date_tm = {0};
+            time_t now = time(NULL);
+            struct tm *current_time = localtime(&now);
+
+            if (strptime(due_date, "%Y-%m-%d", &due_date_tm) == NULL) {
+                printf("Warning: Invalid due date format for savings goal, skipping calculation.\n");
+                continue;
+            }
+
+            time_t due_date_time = mktime(&due_date_tm);
+            int days_left = (due_date_time - now) / (60 * 60 * 24);
+
+            // Ensure we don't divide by 0
+            if (days_left <= 0) {
+                days_left = 1;
+            }
+
+            // Calculate how much needs to be saved per day
+            float daily_savings = (target_amount - saved_amount) / days_left;
+            total_savings_today += (daily_savings > 0) ? daily_savings : 0;
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    // Calculate the total daily budget
+    float daily_budget = (total_income - total_expenses - total_savings_today) / budget->days_in_month;
+
+    // Display the result
+    printf("\n--- Daily Budget ---\n");
+    printf("Total Income: $%.2f\n", total_income);
+    printf("Total Expenses: $%.2f\n", total_expenses);
+    printf("Total Savings Needed for Today: $%.2f\n", total_savings_today);
+    printf("Daily Budget (after savings): $%.2f\n", daily_budget);
+}
 // Function to show analytics
 void showAnalytics(sqlite3 *db) {
     printf("\n=== Budget Analytics ===\n");
@@ -554,7 +770,7 @@ void updateLastProcessedMonth(sqlite3 *db, int year, int month) {
     sqlite3_finalize(stmt);
 }
 
-// Function to apply recurring entries automatically
+// Function to apply recurring income and expenses automatically at the start of a new month
 void applyRecurringTransactions(sqlite3 *db) {
     // Get current date
     time_t t = time(NULL);
@@ -563,40 +779,180 @@ void applyRecurringTransactions(sqlite3 *db) {
     int current_month = current_time->tm_mon + 1;
 
     // Get last processed month from the database
-    int last_year, last_month;
+    int last_year = 0, last_month = 0;
     getLastProcessedMonth(db, &last_year, &last_month);
 
     // Check if we've already processed this month
     if (last_year == current_year && last_month == current_month) {
-        return; // No need to reprocess
+        printf("Recurring transactions already applied for %d/%d.\n", current_month, current_year);
+        return; // Exit, no need to process again
     }
 
     printf("\nApplying recurring income and expenses for %d/%d...\n", current_month, current_year);
 
+    // Generate the current date in YYYY-MM-DD format
+    char date[20];
+    strftime(date, sizeof(date), "%Y-%m-%d", localtime(&t));
+
     // Process recurring income
-    const char *income_sql = "SELECT description, amount FROM recurring WHERE type = 'income';";
+    const char *recurring_income_sql = "SELECT description, amount FROM recurring WHERE type = 'income';";
     sqlite3_stmt *stmt;
-    if (sqlite3_prepare_v2(db, income_sql, -1, &stmt, NULL) == SQLITE_OK) {
+    
+    if (sqlite3_prepare_v2(db, recurring_income_sql, -1, &stmt, NULL) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             const char *description = (const char *)sqlite3_column_text(stmt, 0);
             float amount = sqlite3_column_double(stmt, 1);
-            insertIncome(db, amount, "CURRENT_DATE"); // Insert into income table
+
+            // Insert income into the income table
+            const char *insert_income_sql = "INSERT INTO income (amount, date) VALUES (?, ?);";
+            sqlite3_stmt *income_stmt;
+
+            if (sqlite3_prepare_v2(db, insert_income_sql, -1, &income_stmt, NULL) == SQLITE_OK) {
+                sqlite3_bind_double(income_stmt, 1, amount);
+                sqlite3_bind_text(income_stmt, 2, date, -1, SQLITE_STATIC);
+                
+                if (sqlite3_step(income_stmt) == SQLITE_DONE) {
+                    printf("Added recurring income: %s - $%.2f on %s\n", description, amount, date);
+                } else {
+                    printf("Error: Failed to insert recurring income: %s\n", sqlite3_errmsg(db));
+                }
+            }
+            sqlite3_finalize(income_stmt);
         }
     }
     sqlite3_finalize(stmt);
 
     // Process recurring expenses
-    const char *expense_sql = "SELECT description, amount FROM recurring WHERE type = 'expense';";
-    if (sqlite3_prepare_v2(db, expense_sql, -1, &stmt, NULL) == SQLITE_OK) {
+    const char *recurring_expense_sql = "SELECT description, amount FROM recurring WHERE type = 'expense';";
+
+    if (sqlite3_prepare_v2(db, recurring_expense_sql, -1, &stmt, NULL) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             const char *description = (const char *)sqlite3_column_text(stmt, 0);
             float amount = sqlite3_column_double(stmt, 1);
-            insertExpense(db, description, amount, "CURRENT_DATE"); // Insert into expenses table
+
+            // Insert expense into the expenses table
+            const char *insert_expense_sql = "INSERT INTO expenses (category, amount, date) VALUES (?, ?, ?);";
+            sqlite3_stmt *expense_stmt;
+
+            if (sqlite3_prepare_v2(db, insert_expense_sql, -1, &expense_stmt, NULL) == SQLITE_OK) {
+                sqlite3_bind_text(expense_stmt, 1, description, -1, SQLITE_STATIC);
+                sqlite3_bind_double(expense_stmt, 2, amount);
+                sqlite3_bind_text(expense_stmt, 3, date, -1, SQLITE_STATIC);
+                
+                if (sqlite3_step(expense_stmt) == SQLITE_DONE) {
+                    printf("Added recurring expense: %s - $%.2f on %s\n", description, amount, date);
+                } else {
+                    printf("Error: Failed to insert recurring expense: %s\n", sqlite3_errmsg(db));
+                }
+            }
+            sqlite3_finalize(expense_stmt);
         }
     }
     sqlite3_finalize(stmt);
 
-    // Update last processed month
+    // Update last processed month so transactions aren't duplicated
     updateLastProcessedMonth(db, current_year, current_month);
+
     printf("Recurring transactions applied successfully.\n");
+}
+
+
+// Function to fetch recurring entries
+void fetchRecurringEntries(sqlite3 *db) {
+    const char *sql = "SELECT id, type, description, amount FROM recurring ORDER BY id ASC;";
+    sqlite3_stmt *stmt;
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        printf("Error: Failed to fetch recurring entries: %s\n", sqlite3_errmsg(db));
+        return;
+    }
+
+    printf("\n--- Recurring Income & Expenses ---\n");
+    int found = 0;  // Track if there are any recurring entries
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        int id = sqlite3_column_int(stmt, 0);
+        const char *type = sqlite3_column_text(stmt, 1);
+        const char *description = sqlite3_column_text(stmt, 2);
+        float amount = sqlite3_column_double(stmt, 3);
+
+        printf("[%d] %s - %s: $%.2f\n", id, type, description, amount);
+        found = 1;
+    }
+
+    sqlite3_finalize(stmt);
+
+    if (!found) {
+        printf("No recurring entries found.\n");
+    }
+}
+
+// Function to edit recurring entries
+void editRecurringEntry(sqlite3 *db) {
+    int id;
+    char new_description[MAX_NAME_LENGTH];
+    float new_amount;
+
+    // Show existing recurring entries first
+    fetchRecurringEntries(db);
+
+    printf("\nEnter the ID of the recurring entry you want to edit: ");
+    if (scanf("%d", &id) != 1) {
+        printf("Error: Invalid ID.\n");
+        return;
+    }
+
+    printf("Enter new description: ");
+    scanf("%s", new_description);
+
+    printf("Enter new amount: $");
+    if (scanf("%f", &new_amount) != 1 || new_amount <= 0) {
+        printf("Error: Invalid amount. Must be a positive number.\n");
+        return;
+    }
+
+    const char *sql = "UPDATE recurring SET description = ?, amount = ? WHERE id = ?;";
+    sqlite3_stmt *stmt;
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, new_description, -1, SQLITE_STATIC);
+        sqlite3_bind_double(stmt, 2, new_amount);
+        sqlite3_bind_int(stmt, 3, id);
+
+        if (sqlite3_step(stmt) == SQLITE_DONE) {
+            printf("Recurring entry updated successfully!\n");
+        } else {
+            printf("Error: Failed to update recurring entry: %s\n", sqlite3_errmsg(db));
+        }
+    }
+    sqlite3_finalize(stmt);
+}
+
+
+// Function to remove recurring entries
+void removeRecurringEntry(sqlite3 *db) {
+    int id;
+
+    // Show existing recurring entries first
+    fetchRecurringEntries(db);
+
+    printf("\nEnter the ID of the recurring entry you want to remove: ");
+    if (scanf("%d", &id) != 1) {
+        printf("Error: Invalid ID.\n");
+        return;
+    }
+
+    const char *sql = "DELETE FROM recurring WHERE id = ?;";
+    sqlite3_stmt *stmt;
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_int(stmt, 1, id);
+
+        if (sqlite3_step(stmt) == SQLITE_DONE) {
+            printf("Recurring entry removed successfully!\n");
+        } else {
+            printf("Error: Failed to remove recurring entry: %s\n", sqlite3_errmsg(db));
+        }
+    }
+    sqlite3_finalize(stmt);
 }
