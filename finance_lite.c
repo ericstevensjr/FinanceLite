@@ -68,6 +68,21 @@ void getValidStringInput(char *input, int max_len) {
     }
 }
 
+// Helper function to validate date input (YYYY-MM-DD)
+int getValidDateInput(char *date, int max_len) {
+    while (1) {
+        fgets(date, max_len, stdin);
+        date[strcspn(date, "\n")] = 0;  // Remove trailing newline
+        
+        struct tm tm;
+        if (strptime(date, "%Y-%m-%d", &tm) == NULL) {
+            printf("Error: Invalid date format. Please enter a date in the format YYYY-MM-DD.\n");
+        } else {
+            return 1; // Valid date
+        }
+    }
+}
+
 int main() {
     sqlite3 *db;
     initializeDatabase(&db, "finance_lite.db");
@@ -224,54 +239,65 @@ void insertIncome(sqlite3 *db) {
     char date[20];
 
     printf("Enter income amount: $");
-    amount = getValidFloatInput();
+    amount = getValidFloatInput();  // Ensure valid positive amount
 
     printf("Is this recurring income? (1 = Yes, 0 = No): ");
-    if (scanf("%d", &is_recurring) != 1) {
-        printf("Error: Invalid choice.\n");
-        return;
-    }
+    is_recurring = getValidIntInput();  // Ensure valid input for is_recurring
 
     // Automatically set today's date unless the user chooses to enter a past date
     time_t t = time(NULL);
     struct tm *tm_info = localtime(&t);
     strftime(date, sizeof(date), "%Y-%m-%d", tm_info);
 
-    int use_custom_date;
-    printf("Do you need to enter an older date? (1 = Yes, 0 = No): ");
-    if (scanf("%d", &use_custom_date) == 1 && use_custom_date == 1) {
-        printf("Enter date (YYYY-MM-DD): ");
-        scanf("%s", date);
+    if (is_recurring) {
+        int recurring_start_date_choice;
+        printf("Is the recurring income to start on:\n");
+        printf("1. The 1st of the month\n");
+        printf("2. The date entered above\n");
+        printf("3. A custom date\n");
+        printf("Enter your choice: ");
+        recurring_start_date_choice = getValidIntInput();  // Validate input for the date choice
+
+        switch (recurring_start_date_choice) {
+            case 1:
+                // Set the recurring income to the 1st of the current month
+                struct tm first_of_month_tm = {0};
+                first_of_month_tm.tm_year = tm_info->tm_year;
+                first_of_month_tm.tm_mon = tm_info->tm_mon;
+                first_of_month_tm.tm_mday = 1;
+                strftime(date, sizeof(date), "%Y-%m-%d", &first_of_month_tm);
+                break;
+
+            case 2:
+                // Set to the date entered
+                break;
+
+            case 3:
+                // Allow custom date input
+                printf("Enter custom date (YYYY-MM-DD): ");
+                fgets(date, sizeof(date), stdin);
+                date[strcspn(date, "\n")] = 0;  // Remove trailing newline
+                break;
+
+            default:
+                printf("Invalid choice. Setting to the date entered.\n");
+                break;
+        }
     }
 
-    if (is_recurring) {
-        // Insert into recurring income table
-        const char *sql = "INSERT INTO recurring (type, description, amount) VALUES ('income', 'Recurring Income', ?);";
-        sqlite3_stmt *stmt;
-        if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
-            sqlite3_bind_double(stmt, 1, amount);
-            if (sqlite3_step(stmt) == SQLITE_DONE) {
-                printf("Recurring income added: $%.2f\n", amount);
-            } else {
-                printf("Error: Failed to add recurring income: %s\n", sqlite3_errmsg(db));
-            }
+    // Insert income into the database
+    const char *sql = "INSERT INTO income (amount, date) VALUES (?, ?);";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_double(stmt, 1, amount);
+        sqlite3_bind_text(stmt, 2, date, -1, SQLITE_STATIC);
+        if (sqlite3_step(stmt) == SQLITE_DONE) {
+            printf("Income added: $%.2f on %s\n", amount, date);
+        } else {
+            printf("Error: Failed to add income: %s\n", sqlite3_errmsg(db));
         }
-        sqlite3_finalize(stmt);
-    } else {
-        // Insert into one-time income table
-        const char *sql = "INSERT INTO income (amount, date) VALUES (?, ?);";
-        sqlite3_stmt *stmt;
-        if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
-            sqlite3_bind_double(stmt, 1, amount);
-            sqlite3_bind_text(stmt, 2, date, -1, SQLITE_STATIC);
-            if (sqlite3_step(stmt) == SQLITE_DONE) {
-                printf("One-time income added: $%.2f on %s\n", amount, date);
-            } else {
-                printf("Error: Failed to add one-time income: %s\n", sqlite3_errmsg(db));
-            }
-        }
-        sqlite3_finalize(stmt);
     }
+    sqlite3_finalize(stmt);
 }
 
 void insertExpense(sqlite3 *db) {
@@ -282,44 +308,69 @@ void insertExpense(sqlite3 *db) {
 
     printf("Enter expense category: ");
     scanf("%s", category);
-    printf("Enter an amount: ");
-    amount = getValidFloatInput();
+
+    printf("Enter amount: $");
+    amount = getValidFloatInput();  // Ensure valid positive amount
 
     printf("Is this a recurring expense? (1 = Yes, 0 = No): ");
-    if (scanf("%d", &is_recurring) != 1) {
-        printf("Error: Invalid choice.\n");
-        return;
-    }
+    is_recurring = getValidIntInput();  // Ensure valid input for is_recurring
 
     // Automatically set today's date unless the user wants to enter a past date
     time_t t = time(NULL);
     struct tm *tm_info = localtime(&t);
     strftime(date, sizeof(date), "%Y-%m-%d", tm_info);
 
-    int use_custom_date;
-    printf("Do you need to enter an older date? (1 = Yes, 0 = No): ");
-    if (scanf("%d", &use_custom_date) == 1 && use_custom_date == 1) {
-        printf("Enter date (YYYY-MM-DD): ");
-        scanf("%s", date);
-    }
-
     if (is_recurring) {
-        // Insert into recurring expense table
-        const char *sql = "INSERT INTO recurring (type, description, amount) VALUES ('expense', ?, ?);";
-        sqlite3_stmt *stmt;
-        if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
-            sqlite3_bind_text(stmt, 1, category, -1, SQLITE_STATIC);
-            sqlite3_bind_double(stmt, 2, amount);
-            if (sqlite3_step(stmt) == SQLITE_DONE) {
-                printf("Recurring expense added: %s - $%.2f\n", category, amount);
-            } else {
-                printf("Error: Failed to add recurring expense: %s\n", sqlite3_errmsg(db));
-            }
-        }
-        sqlite3_finalize(stmt);
-    }
-}
+        int recurring_start_date_choice;
+        printf("Is the recurring expense to start on:\n");
+        printf("1. The 1st of the month\n");
+        printf("2. The date entered above\n");
+        printf("3. A custom date\n");
+        printf("Enter your choice: ");
+        recurring_start_date_choice = getValidIntInput();  // Validate input for the date choice
 
+        switch (recurring_start_date_choice) {
+            case 1:
+                // Set the recurring expense to the 1st of the current month
+                struct tm first_of_month_tm = {0};
+                first_of_month_tm.tm_year = tm_info->tm_year;
+                first_of_month_tm.tm_mon = tm_info->tm_mon;
+                first_of_month_tm.tm_mday = 1;
+                strftime(date, sizeof(date), "%Y-%m-%d", &first_of_month_tm);
+                break;
+
+            case 2:
+                // Set to the date entered
+                break;
+
+            case 3:
+                // Allow custom date input
+                printf("Enter custom date (YYYY-MM-DD): ");
+                fgets(date, sizeof(date), stdin);
+                date[strcspn(date, "\n")] = 0;  // Remove trailing newline
+                break;
+
+            default:
+                printf("Invalid choice. Setting to the date entered.\n");
+                break;
+        }
+    }
+
+    // Insert expense into the database
+    const char *sql = "INSERT INTO expenses (category, amount, date) VALUES (?, ?, ?);";
+    sqlite3_stmt *stmt;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, category, -1, SQLITE_STATIC);
+        sqlite3_bind_double(stmt, 2, amount);
+        sqlite3_bind_text(stmt, 3, date, -1, SQLITE_STATIC);
+        if (sqlite3_step(stmt) == SQLITE_DONE) {
+            printf("Expense added: %s - $%.2f on %s\n", category, amount, date);
+        } else {
+            printf("Error: Failed to add expense: %s\n", sqlite3_errmsg(db));
+        }
+    }
+    sqlite3_finalize(stmt);
+}
 
 // Function to insert a savings goal
 void insertSavingsGoal(sqlite3 *db, const char *name, float target_amount, const char *due_date) {
@@ -339,7 +390,6 @@ void insertSavingsGoal(sqlite3 *db, const char *name, float target_amount, const
     }
     sqlite3_finalize(stmt);
 }
-
 
 // Function to update savings goal
 void updateSavingsGoal(sqlite3 *db, int goal_id, float amount) {
@@ -375,27 +425,57 @@ void fetchSavingsGoals(sqlite3 *db) {
 }
 
 
-// Function to insert recurring entry
+// Function to insert recurring entry with start date validation
 void insertRecurringEntry(sqlite3 *db, const char *type) {
     char description[MAX_NAME_LENGTH];
     float amount;
+    char date[20];
 
     printf("Enter description for recurring %s: ", type);
-    scanf("%s", description);
+    getValidStringInput(description, MAX_NAME_LENGTH);  // Ensure valid description
 
     printf("Enter amount: $");
-    scanf("%f", &amount);
+    amount = getValidFloatInput();  // Ensure valid positive amount
 
-    const char *sql = "INSERT INTO recurring (type, description, amount) VALUES (?, ?, ?);";
+    printf("Choose the start date for the recurring transaction:\n");
+    printf("1. Set to the 1st of the month\n");
+    printf("2. Set to the date entered\n");
+    printf("3. Set to a custom date\n");
+    int choice = getValidIntInput();
+
+    switch (choice) {
+        case 1:
+            // Set date to the 1st of the current month
+            time_t t = time(NULL);
+            struct tm *tm_info = localtime(&t);
+            tm_info->tm_mday = 1;  // Set day to the 1st
+            strftime(date, sizeof(date), "%Y-%m-%d", tm_info);
+            break;
+        case 2:
+            // Set to the date entered when the transaction was added
+            strftime(date, sizeof(date), "%Y-%m-%d", localtime(&t));
+            break;
+        case 3:
+            // Ask for custom date
+            printf("Enter custom date (YYYY-MM-DD): ");
+            getValidDateInput(date, sizeof(date));  // Validate custom date input
+            break;
+        default:
+            printf("Error: Invalid choice.\n");
+            return;
+    }
+
+    const char *sql = "INSERT INTO recurring (type, description, amount, date) VALUES (?, ?, ?, ?);";
     sqlite3_stmt *stmt;
 
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, type, -1, SQLITE_STATIC);
         sqlite3_bind_text(stmt, 2, description, -1, SQLITE_STATIC);
         sqlite3_bind_double(stmt, 3, amount);
+        sqlite3_bind_text(stmt, 4, date, -1, SQLITE_STATIC);
 
         if (sqlite3_step(stmt) == SQLITE_DONE) {
-            printf("Recurring %s added: %s - $%.2f\n", type, description, amount);
+            printf("Recurring %s added: %s - $%.2f, Start Date: %s\n", type, description, amount, date);
         } else {
             printf("Error: Failed to add recurring %s: %s\n", type, sqlite3_errmsg(db));
         }
