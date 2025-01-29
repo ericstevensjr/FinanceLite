@@ -35,6 +35,39 @@ void editRecurringEntry(sqlite3 *db);
 void removeRecurringEntry(sqlite3 *db);
 void saveBudgetToJSON(sqlite3 *db, const char *filename);
 
+// Helper function to get a valid integer input from the user
+int getValidIntInput() {
+    int value;
+    while (scanf("%d", &value) != 1) {
+        printf("Error: Invalid input. Please enter a valid integer.\n");
+        while (getchar() != '\n');  // Clear buffer
+    }
+    return value;
+}
+
+// Helper function to get a valid float input from the user
+float getValidFloatInput() {
+    float value;
+    while (scanf("%f", &value) != 1 || value <= 0) {
+        printf("Error: Invalid input. Please enter a valid positive number.\n");
+        while (getchar() != '\n');  // Clear buffer
+    }
+    return value;
+}
+
+// Helper function to get a valid non-empty string input
+void getValidStringInput(char *input, int max_len) {
+    while (1) {
+        fgets(input, max_len, stdin);
+        input[strcspn(input, "\n")] = 0;  // Remove trailing newline
+        if (strlen(input) == 0) {
+            printf("Error: Input cannot be empty. Please enter a valid string.\n");
+        } else {
+            break;
+        }
+    }
+}
+
 int main() {
     sqlite3 *db;
     initializeDatabase(&db, "finance_lite.db");
@@ -59,7 +92,7 @@ int main() {
         printf("9. Export Budget to JSON\n");
         printf("10. Save and Exit\n");
         printf("Enter your choice: ");
-        scanf("%d", &choice);
+        choice = getValidIntInput();
         getchar(); // Consume newline left in buffer
 
         switch (choice) {
@@ -74,15 +107,10 @@ int main() {
                 float target_amount;
 
                 printf("Enter savings goal name: ");
-                fgets(name, MAX_NAME_LENGTH, stdin);
-                name[strcspn(name, "\n")] = 0; // Remove trailing newline
+                getValidStringInput(name, MAX_NAME_LENGTH);
 
                 printf("Enter target amount: $");
-                if (scanf("%f", &target_amount) != 1 || target_amount <= 0) {
-                    printf("Error: Invalid target amount.\n");
-                    while (getchar() != '\n'); // Clear buffer
-                    break;
-                }
+                target_amount = getValidFloatInput();  // Use the helper function for validation
 
                 printf("Enter due date (YYYY-MM-DD): ");
                 scanf("%10s", due_date);
@@ -196,10 +224,7 @@ void insertIncome(sqlite3 *db) {
     char date[20];
 
     printf("Enter income amount: $");
-    if (scanf("%f", &amount) != 1 || amount <= 0) {
-        printf("Error: Invalid income amount.\n");
-        return;
-    }
+    amount = getValidFloatInput();
 
     printf("Is this recurring income? (1 = Yes, 0 = No): ");
     if (scanf("%d", &is_recurring) != 1) {
@@ -257,12 +282,8 @@ void insertExpense(sqlite3 *db) {
 
     printf("Enter expense category: ");
     scanf("%s", category);
-
-    printf("Enter amount: $");
-    if (scanf("%f", &amount) != 1 || amount <= 0) {
-        printf("Error: Invalid expense amount.\n");
-        return;
-    }
+    printf("Enter an amount: ");
+    amount = getValidFloatInput();
 
     printf("Is this a recurring expense? (1 = Yes, 0 = No): ");
     if (scanf("%d", &is_recurring) != 1) {
@@ -445,7 +466,7 @@ void removeSavingsGoal(sqlite3 *db) {
     if (choice == 1) {
         // Remove by ID
         printf("Enter the ID of the savings goal you want to remove: ");
-        scanf("%d", &goal_id);
+        goal_id = getValidIntInput();
 
         const char *sql = "DELETE FROM savings_goals WHERE id = ?;";
         sqlite3_stmt *stmt;
@@ -464,8 +485,7 @@ void removeSavingsGoal(sqlite3 *db) {
         // Remove by Name
         printf("Enter the name of the savings goal you want to remove: ");
         getchar(); // Consume the newline character left by previous scanf
-        fgets(goal_name, MAX_NAME_LENGTH, stdin);
-        goal_name[strcspn(goal_name, "\n")] = 0; // Remove trailing newline
+        getValidStringInput(goal_name, MAX_NAME_LENGTH);
 
         const char *sql = "DELETE FROM savings_goals WHERE name = ?;";
         sqlite3_stmt *stmt;
@@ -863,9 +883,10 @@ void fetchRecurringEntries(sqlite3 *db) {
     sqlite3_stmt *stmt;
 
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-        printf("Error: Failed to fetch recurring entries: %s\n", sqlite3_errmsg(db));
+        printf("SQLite Error: %s\n", sqlite3_errmsg(db));  // More detailed error message
         return;
     }
+
 
     printf("\n--- Recurring Income & Expenses ---\n");
     int found = 0;  // Track if there are any recurring entries
