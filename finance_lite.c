@@ -114,10 +114,21 @@ int main() {
             case 9:
                 saveBudgetToJSON(db, filename);
                 break;
-            case 10:
-                printf("Budget saved. Goodbye!\n");
-                sqlite3_close(db);
-                break;
+            case 10: {
+                char confirm_exit;
+                printf("\nAre you sure you want to exit? (Y/N): ");
+                scanf(" %c", &confirm_exit);
+
+                if (confirm_exit == 'Y' || confirm_exit == 'y') {
+                    printf("Budget saved. Goodbye!\n");
+                    sqlite3_close(db);
+                    exit(0); // Exits only if user confirms
+                } 
+
+                printf("Returning to menu...\n");
+                choice = -1; // Reset choice so the loop continues
+                break; 
+            }
             default:
                 printf("Invalid choice. Please try again.\n");
         }
@@ -174,42 +185,100 @@ void initializeDatabase(sqlite3 **db, const char *db_name) {
     printf("Database initialized successfully.\n");
 }
 
+
 // Function to insert income
 void insertIncome(sqlite3 *db, float amount, const char *date) {
+    if (amount <= 0) {
+        printf("Error: Income must be a positive number.\n");
+        return;
+    }
+
     const char *sql = "INSERT INTO income (amount, date) VALUES (?, ?);";
     sqlite3_stmt *stmt;
-    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        printf("Error: Failed to prepare income statement: %s\n", sqlite3_errmsg(db));
+        return;
+    }
+
     sqlite3_bind_double(stmt, 1, amount);
     sqlite3_bind_text(stmt, 2, date, -1, SQLITE_STATIC);
-    sqlite3_step(stmt);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        printf("Error: Could not insert income: %s\n", sqlite3_errmsg(db));
+    } else {
+        printf("Income added successfully: $%.2f\n", amount);
+    }
+
     sqlite3_finalize(stmt);
-    printf("Income added successfully.\n");
 }
 
 // Function to insert expense
 void insertExpense(sqlite3 *db, const char *category, float amount, const char *date) {
+    if (amount <= 0) {
+        printf("Error: Expense amount must be positive.\n");
+        return;
+    }
+
+    if (strlen(category) == 0 || strlen(category) > MAX_NAME_LENGTH) {
+        printf("Error: Invalid category name. Must be 1-%d characters.\n", MAX_NAME_LENGTH);
+        return;
+    }
+
     const char *sql = "INSERT INTO expenses (category, amount, date) VALUES (?, ?, ?);";
     sqlite3_stmt *stmt;
-    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        printf("Error: Failed to prepare expense statement: %s\n", sqlite3_errmsg(db));
+        return;
+    }
+
     sqlite3_bind_text(stmt, 1, category, -1, SQLITE_STATIC);
     sqlite3_bind_double(stmt, 2, amount);
     sqlite3_bind_text(stmt, 3, date, -1, SQLITE_STATIC);
-    sqlite3_step(stmt);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        printf("Error: Could not insert expense: %s\n", sqlite3_errmsg(db));
+    } else {
+        printf("Expense added successfully: %s - $%.2f\n", category, amount);
+    }
+
     sqlite3_finalize(stmt);
-    printf("Expense added successfully.\n");
 }
+
 
 // Function to insert savings goal
 void insertSavingsGoal(sqlite3 *db, const char *name, float target_amount) {
+    if (target_amount <= 0) {
+        printf("Error: Target amount must be positive.\n");
+        return;
+    }
+
+    if (strlen(name) == 0 || strlen(name) > MAX_NAME_LENGTH) {
+        printf("Error: Invalid savings goal name. Must be 1-%d characters.\n", MAX_NAME_LENGTH);
+        return;
+    }
+
     const char *sql = "INSERT INTO savings_goals (name, target_amount, saved_amount) VALUES (?, ?, 0);";
     sqlite3_stmt *stmt;
-    sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        printf("Error: Failed to prepare savings goal statement: %s\n", sqlite3_errmsg(db));
+        return;
+    }
+
     sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
     sqlite3_bind_double(stmt, 2, target_amount);
-    sqlite3_step(stmt);
+
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        printf("Error: Could not insert savings goal: %s\n", sqlite3_errmsg(db));
+    } else {
+        printf("Savings goal added successfully: %s - Target: $%.2f\n", name, target_amount);
+    }
+
     sqlite3_finalize(stmt);
-    printf("Savings goal added successfully.\n");
 }
+
 
 // Function to update savings goal
 void updateSavingsGoal(sqlite3 *db, int goal_id, float amount) {
